@@ -20,7 +20,13 @@
     exam_today:      { label: 'Exam today',      cls: 'bad',  note: '' },
     finished:        { label: 'Finished',        cls: 'idle', note: '' },
   };
-  const VIEWS = ['today', 'plan', 'subjects', 'settings'];
+  const VIEWS = ['today', 'plan', 'subjects', 'focus', 'settings'];
+  const FOCUS_MODES = {
+    focus: { label: 'Focus', minutes: 25 },
+    short: { label: 'Short break', minutes: 5 },
+    long:  { label: 'Long break', minutes: 15 },
+  };
+  const LONG_BREAK_EVERY = 4; // every 4th break is a long one
 
   // ---------------------------------------------------------------- small helpers
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -43,7 +49,7 @@
   const fmtH = (h) => `${Number(h)} h`;
 
   // ---------------------------------------------------------------- saved state
-  const emptyState = () => ({ version: 1, settings: { hoursPerDay: 4 }, blockedDays: [], exams: [], log: [] });
+  const emptyState = () => ({ version: 1, settings: { hoursPerDay: 4 }, blockedDays: [], exams: [], log: [], focus: [] });
 
   /** Clean any saved/restored data so a bad file can't break the app. */
   function sanitize(raw) {
@@ -79,6 +85,16 @@
         unitId: l.unitId ? String(l.unitId) : null,
         examId: String(l.examId || ''),
         hours: Math.max(0, Number(l.hours) || 0),
+      }));
+    // Finished Pomodoro sessions (v2)
+    out.focus = (Array.isArray(raw.focus) ? raw.focus : [])
+      .filter((f) => f && isIsoDate(f.date))
+      .map((f) => ({
+        date: f.date,
+        subject: String(f.subject || 'General study').slice(0, 60),
+        task: String(f.task || '').slice(0, 120),
+        color: COLORS.includes(f.color) ? f.color : null,
+        minutes: Math.max(1, Math.min(120, Number(f.minutes) || 25)),
       }));
     return out;
   }
@@ -282,6 +298,7 @@
         body = `${banner}<p class="tally">${count} of ${day.tasks.length} done · ${fmtH(total)} planned</p>
           <ul class="checklist">${day.tasks.map((x) => taskItem(x, done.has(x.id), true)).join('')}</ul>`;
         if (count === day.tasks.length) body += '<p class="hand-note well-done">All done for today. Well done!</p>';
+        else body += '<p class="focus-cta"><button class="btn small" data-action="go" data-to="focus">🍅 Start a focus session</button></p>';
       }
     }
     return `<section class="card taped"><h3 class="hand">Today's tasks</h3>${body}</section>`;
@@ -533,8 +550,190 @@
     </div>`;
   }
 
+  // ---------------------------------------------------------------- view: Focus (Pomodoro timer, v2)
+  const timer = {
+    mode: 'focus',
+    remaining: FOCUS_MODES.focus.minutes * 60, // seconds left
+    running: false,
+    endAt: 0,
+    interval: null,
+    taskId: '',
+    breaksTaken: 0,
+  };
+  const BASE_TITLE = document.title;
+
+  const fmtClock = (s) => `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+  const modeSeconds = (mode) => FOCUS_MODES[mode].minutes * 60;
+
+  /** Tasks you can focus on: today's planned tasks, plus "General study". */
+  function focusChoices() {
+    const day = plan && plan.days.find((d) => d.date === todayIso());
+    const tasks = day ? day.tasks : [];
+    return [{ id: '', title: 'General study', subject: 'General study', color: null }]
+      .concat(tasks.map((x) => ({ id: x.id, title: x.title, subject: x.subject, color: x.color })));
+  }
+
+  function viewFocus() {
+    const t = todayIso();
+    const sessions = state.focus.filter((f) => f.date === t);
+    const minutes = sessions.reduce((sum, f) => sum + f.minutes, 0);
+    const choices = focusChoices();
+    if (!choices.some((c) => c.id === timer.taskId)) timer.taskId = '';
+    const current = choices.find((c) => c.id === timer.taskId);
+    const pct = Math.round(100 * (1 - timer.remaining / modeSeconds(timer.mode)));
+
+    const modes = Object.entries(FOCUS_MODES).map(([key, m]) => `<button type="button"
+        class="mode-btn ${key === timer.mode ? 'on' : ''}" data-action="focus-mode" data-mode="${key}"
+        aria-pressed="${key === timer.mode}">${m.label}<span>${m.minutes} min</span></button>`).join('');
+
+    const options = choices.map((c) => `<option value="${esc(c.id)}" ${c.id === timer.taskId ? 'selected' : ''}>${
+      esc(c.id ? `${c.subject}: ${c.title}` : c.title)}</option>`).join('');
+
+    const bySubject = {};
+    sessions.forEach((f) => {
+      const s = bySubject[f.subject] || (bySubject[f.subject] = { n: 0, min: 0, color: f.color });
+      s.n += 1; s.min += f.minutes;
+    });
+    const breakdown = Object.keys(bySubject).length
+      ? `<ul class="tomorrow-list">${Object.entries(bySubject).map(([name, s]) =>
+          `<li><span>${s.color ? hl(s.color, name) : esc(name)}</span><span class="h">${'🍅'.repeat(Math.min(s.n, 8))} ${s.min} min</span></li>`).join('')}</ul>`
+      : '<p class="muted small">No sessions yet today. Start your first one!</p>';
+
+    const tomatoes = sessions.length
+      ? `<p class="tomatoes" aria-label="${sessions.length} sessions">${'🍅'.repeat(Math.min(sessions.length, 16))}</p>`
+      : '';
+
+    return `<section class="plan-head">
+      <div><p class="eyebrow">New in version 2</p><h2 class="hand big">Focus timer</h2></div>
+      <span class="stamp stamp-${timer.mode === 'focus' ? 'red' : 'good'}">${esc(FOCUS_MODES[timer.mode].label)}</span>
+    </section>
+    <div class="today-grid">
+      <section class="card taped focus-card">
+        <div class="modes">${modes}</div>
+        <div class="focus-ring mode-${timer.mode}" style="--p:${pct}" id="focus-ring">
+          <div class="focus-face">
+            <span class="focus-clock" id="focus-clock">${fmtClock(timer.remaining)}</span>
+            <span class="focus-sub">${timer.running ? (timer.mode === 'focus' ? 'stay focused…' : 'take a breather') : 'paused'}</span>
+          </div>
+        </div>
+        <label class="field focus-task"><span>What are you working on?</span>
+          <select data-action="focus-task" data-key="focus-task">${options}</select></label>
+        ${current && current.id ? `<p class="small muted">Working on ${hl(current.color, current.subject)} ${esc(current.title)}</p>` : ''}
+        <div class="row focus-controls">
+          ${timer.running
+            ? '<button class="btn btn-primary" data-action="focus-pause">Pause</button>'
+            : `<button class="btn btn-primary" data-action="focus-start">${timer.remaining < modeSeconds(timer.mode) ? 'Resume' : 'Start'}</button>`}
+          <button class="btn" data-action="focus-reset">Reset</button>
+          <button class="btn" data-action="focus-skip">Skip ▸</button>
+        </div>
+      </section>
+      <aside>
+        <section class="sticky sticky-good">
+          <h3 class="hand">Today's focus</h3>
+          <p class="focus-total"><strong>${sessions.length}</strong> session${sessions.length === 1 ? '' : 's'} · <strong>${minutes}</strong> min</p>
+          ${tomatoes}
+        </section>
+        <section class="card"><h3 class="hand">By subject</h3>${breakdown}</section>
+        <section class="card soft">
+          <h3 class="hand">How it works</h3>
+          <p class="small">Work for <strong>25 minutes</strong>, then take a <strong>5 minute</strong> break.
+          After every 4 sessions, take a longer <strong>15 minute</strong> break. Short, focused bursts beat long, distracted hours.</p>
+        </section>
+      </aside>
+    </div>`;
+  }
+
+  /** Update only the clock (not the whole page) every tick, so typing elsewhere isn't disturbed. */
+  function paintClock() {
+    const clock = document.getElementById('focus-clock');
+    const ring = document.getElementById('focus-ring');
+    if (clock) clock.textContent = fmtClock(timer.remaining);
+    if (ring) ring.style.setProperty('--p', Math.round(100 * (1 - timer.remaining / modeSeconds(timer.mode))));
+    document.title = timer.running ? `${fmtClock(timer.remaining)} · ${FOCUS_MODES[timer.mode].label}` : BASE_TITLE;
+  }
+
+  function focusTick() {
+    timer.remaining = Math.max(0, Math.round((timer.endAt - Date.now()) / 1000));
+    paintClock();
+    if (timer.remaining === 0) focusComplete();
+  }
+
+  function focusStart() {
+    if (timer.running) return;
+    timer.running = true;
+    timer.endAt = Date.now() + timer.remaining * 1000;
+    clearInterval(timer.interval);
+    timer.interval = setInterval(focusTick, 250);
+    render();
+    paintClock();
+  }
+
+  function focusPause() {
+    if (!timer.running) return;
+    timer.remaining = Math.max(0, Math.round((timer.endAt - Date.now()) / 1000));
+    timer.running = false;
+    clearInterval(timer.interval);
+    render();
+    paintClock();
+  }
+
+  function focusSetMode(mode, keepRunning = false) {
+    clearInterval(timer.interval);
+    timer.running = false;
+    timer.mode = mode;
+    timer.remaining = modeSeconds(mode);
+    if (keepRunning) { focusStart(); return; }
+    render();
+    paintClock();
+  }
+
+  function chime() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      [0, 0.35, 0.7].forEach((delay) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + delay + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + 0.3);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + 0.32);
+      });
+      setTimeout(() => ctx.close(), 1500);
+    } catch (_) { /* sound is optional */ }
+  }
+
+  function focusComplete(skipped = false) {
+    clearInterval(timer.interval);
+    timer.running = false;
+    if (timer.mode === 'focus') {
+      if (!skipped) {
+        const c = focusChoices().find((x) => x.id === timer.taskId) || focusChoices()[0];
+        state.focus.push({
+          date: todayIso(),
+          subject: c.subject,
+          task: c.id ? c.title : '',
+          color: c.color,
+          minutes: FOCUS_MODES.focus.minutes,
+        });
+        save();
+        chime();
+        toast('Focus session done! 🍅 Time for a break.');
+      }
+      timer.breaksTaken += 1;
+      focusSetMode(timer.breaksTaken % LONG_BREAK_EVERY === 0 ? 'long' : 'short');
+    } else {
+      if (!skipped) { chime(); toast('Break over. Back to it!'); }
+      focusSetMode('focus');
+    }
+  }
+
   // ---------------------------------------------------------------- rendering
-  const VIEW_FNS = { today: viewToday, plan: viewPlan, subjects: viewSubjects, settings: viewSettings };
+  const VIEW_FNS = { today: viewToday, plan: viewPlan, subjects: viewSubjects, focus: viewFocus, settings: viewSettings };
 
   function render() {
     // Keep whatever the user is in the middle of typing, and keep focus where it was.
@@ -715,6 +914,11 @@
       exams: [sepm, cn, cloud],
       // pretend you studied yesterday, so progress and the streak show up
       log: [{ date: addDays(t, -1), taskId: `study:${sepm.units[0].id}`, unitId: sepm.units[0].id, examId: sepm.id, hours: 1.5 }],
+      // two finished focus sessions today, so the Focus tab has something to show
+      focus: [
+        { date: t, subject: sepm.subject, task: 'Process models', color: sepm.color, minutes: 25 },
+        { date: t, subject: cn.subject, task: 'Physical layer', color: cn.color, minutes: 25 },
+      ],
     };
   }
 
@@ -786,6 +990,16 @@
         state.blockedDays = state.blockedDays.filter((d) => d !== el.dataset.date);
         commit();
         break;
+      case 'focus-start': focusStart(); break;
+      case 'focus-pause': focusPause(); break;
+      case 'focus-reset': focusSetMode(timer.mode); break;
+      case 'focus-skip': focusComplete(true); break;
+      case 'focus-mode':
+        if (el.dataset.mode !== timer.mode
+            && (!timer.running || confirm('Stop the running timer and switch?'))) {
+          focusSetMode(el.dataset.mode);
+        }
+        break;
       default: break;
     }
   });
@@ -797,6 +1011,7 @@
     if (action === 'tick') { onTick(el); return; }
     if (action === 'unit-field') { onUnitField(el); return; }
     if (action === 'restore') { restore(el); return; }
+    if (action === 'focus-task') { timer.taskId = el.value; render(); return; }
     if (action === 'exam-field') {
       const exam = findExam(el.dataset.exam);
       if (!exam) return;

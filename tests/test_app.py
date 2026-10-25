@@ -28,6 +28,13 @@ def test_home_page_loads(client):
     assert b"My Study Diary" in res.data
 
 
+def test_focus_timer_tab_exists(client):
+    """v2: the Pomodoro focus timer has its own tab."""
+    res = client.get("/")
+    assert b'data-view="focus"' in res.data
+    assert b"viewFocus" in client.get("/static/app.js").data
+
+
 def test_static_files_are_served(client):
     assert client.get("/static/app.js").status_code == 200
     assert client.get("/static/style.css").status_code == 200
