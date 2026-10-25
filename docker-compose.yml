@@ -1,0 +1,10 @@
+# For running the app on your own laptop:  docker compose up -d --build
+# Then open http://localhost:5000
+services:
+  planner:
+    build: .
+    image: exam-study-planner:local
+    container_name: exam-study-planner
+    ports:
+      - "5000:5000"
+    restart: unless-stopped

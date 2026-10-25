@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Exam Study Planner</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='88'%3E%F0%9F%93%92%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Patrick+Hand&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="cover">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">✎</span>
+      <div>
+        <h1>My Study Diary</h1>
+        <p>exam study planner</p>
+      </div>
+    </div>
+    <nav class="tabs" aria-label="Sections">
+      <button class="tab tab-yellow" data-view="today">Today</button>
+      <button class="tab tab-pink" data-view="plan">Full plan</button>
+      <button class="tab tab-blue" data-view="subjects">Subjects</button>
+      <button class="tab tab-green" data-view="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main class="page">
+    <div id="view"></div>
+  </main>
+
+  <footer class="foot">
+    Exam Study Planner <span id="version"></span> · your diary is saved in this browser
+    <span id="storage-warning" hidden> · ⚠ this browser is blocking storage, so changes won't be kept</span>
+  </footer>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
