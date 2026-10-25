@@ -7,8 +7,8 @@ Student: Shehzaad Kurawer · Roll no: 09 · PRN: 1262242419 · Panel/Batch: C/C1
 |---|---|
 | GitHub repository | `https://github.com/Shehzaad23/exam-study-planner` |
 | Docker Hub image | `https://hub.docker.com/r/shehzaad23/exam-study-planner` |
-| Jenkins (AWS EC2) | `http://EC2_PUBLIC_IP:8080` |
-| Running app | `http://EC2_PUBLIC_IP:30080` |
+| Jenkins (AWS EC2) | `http://13.206.94.88:8080` |
+| Running app | `http://13.206.94.88:30080` |
 
 ---
 
@@ -100,7 +100,7 @@ sudo -u jenkins -H kubectl get deployment,pods,service -o wide
 |---|---|---|
 | Version | 1.0.0 | 2.0.0 |
 | Image tag | `1.0.0-build1` | `2.0.0-build2` |
-| Change | — | _describe your change here (e.g. added a Pomodoro focus timer)_ |
+| Change | — | Added a Pomodoro focus timer tab |
 
 Steps: changed the code, set `VERSION` to `2.0.0`, then ran `git commit` and `git push`. The webhook started the pipeline automatically. Tests passed, the new image was pushed, Kubernetes did a rolling update to the new pods, and the Verify stage confirmed `/api/version` returned `2.0.0`. The app footer now shows **v2.0.0**.
 
