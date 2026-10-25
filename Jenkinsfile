@@ -114,12 +114,22 @@ pipeline {
                     echo "----- Service -----"
                     kubectl get service ${K8S_APP}
 
-                    # Call the running app and check it reports the version we just built
+                    # Call the running app and check it reports the version we just built.
+                    # Retry for up to ~1 minute: right after a rolling update the Service
+                    # can take a few seconds to point at the new pods.
                     URL="http://$(minikube ip):${NODE_PORT}"
-                    curl -fsS "$URL/api/health"; echo
-                    DEPLOYED=$(curl -fsS "$URL/api/version")
-                    echo "App says: $DEPLOYED"
-                    echo "$DEPLOYED" | grep -q "\\"${APP_VERSION}\\"" || { echo "Wrong version is running!"; exit 1; }
+                    for i in $(seq 1 12); do
+                        DEPLOYED=$(curl -fsS --max-time 5 "$URL/api/version" || true)
+                        echo "Attempt $i: app says: $DEPLOYED"
+                        if echo "$DEPLOYED" | grep -q "\\"${APP_VERSION}\\""; then
+                            curl -fsS --max-time 5 "$URL/api/health"; echo
+                            echo "Verified: version ${APP_VERSION} is live."
+                            exit 0
+                        fi
+                        sleep 5
+                    done
+                    echo "Version ${APP_VERSION} did not come up in time!"
+                    exit 1
                 '''
             }
         }
